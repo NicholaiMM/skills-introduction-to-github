@@ -107,12 +107,21 @@ cmd_constellation() {
       -H "Authorization: token ${GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
       "https://api.github.com/user/repos?per_page=100&page=${page}")"
-    local count
-    count="$(echo "${batch}" | grep -c '"full_name"' || true)"
-    [[ "${count}" -eq 0 ]] && break
-    while IFS= read -r name; do
-      repos+=("${name}")
-    done < <(echo "${batch}" | grep '"full_name"' | sed 's/.*"full_name": "\([^"]*\)".*/\1/')
+
+    # Use jq for reliable JSON parsing when available; fall back to grep/sed
+    local batch_repos=()
+    if command -v jq &>/dev/null; then
+      while IFS= read -r name; do
+        batch_repos+=("${name}")
+      done < <(echo "${batch}" | jq -r '.[].full_name' 2>/dev/null || true)
+    else
+      while IFS= read -r name; do
+        batch_repos+=("${name}")
+      done < <(echo "${batch}" | grep '"full_name"' | sed 's/.*"full_name": "\([^"]*\)".*/\1/')
+    fi
+
+    [[ "${#batch_repos[@]}" -eq 0 ]] && break
+    repos+=("${batch_repos[@]}")
     (( page++ ))
   done
 

@@ -57,16 +57,24 @@ while true; do
     -H "Accept: application/vnd.github+json" \
     "https://api.github.com/user/repos?per_page=100&page=${page}")"
 
-  # Extract clone URLs (SSH preferred; fall back to HTTPS)
+  # Use jq for reliable JSON parsing when available; fall back to grep/sed
   batch_names=()
   batch_urls=()
-  while IFS= read -r line; do
-    batch_names+=("${line}")
-  done < <(echo "${response}" | grep '"full_name"' | sed 's/.*"full_name": "\([^"]*\)".*/\1/')
-
-  while IFS= read -r line; do
-    batch_urls+=("${line}")
-  done < <(echo "${response}" | grep '"clone_url"' | sed 's/.*"clone_url": "\([^"]*\)".*/\1/')
+  if command -v jq &>/dev/null; then
+    while IFS= read -r line; do
+      batch_names+=("${line}")
+    done < <(echo "${response}" | jq -r '.[].full_name' 2>/dev/null || true)
+    while IFS= read -r line; do
+      batch_urls+=("${line}")
+    done < <(echo "${response}" | jq -r '.[].clone_url' 2>/dev/null || true)
+  else
+    while IFS= read -r line; do
+      batch_names+=("${line}")
+    done < <(echo "${response}" | grep '"full_name"' | sed 's/.*"full_name": "\([^"]*\)".*/\1/')
+    while IFS= read -r line; do
+      batch_urls+=("${line}")
+    done < <(echo "${response}" | grep '"clone_url"' | sed 's/.*"clone_url": "\([^"]*\)".*/\1/')
+  fi
 
   if [[ "${#batch_names[@]}" -eq 0 ]]; then
     break
@@ -113,18 +121,18 @@ for entry in "${repos[@]}"; do
 
   log "Processing: ${full_name}"
 
-  # Inject credentials into HTTPS clone URL
-  authed_url="${clone_url/https:\/\//https://${GITHUB_USER}:${GITHUB_TOKEN}@}"
+  # Use a git credential helper to avoid embedding the token in the URL
+  cred_helper='!f() { echo "username='"${GITHUB_USER}"'"; echo "password='"${GITHUB_TOKEN}"'"; }; f'
 
   # Clone or update
   if [[ -d "${repo_dir}/.git" ]]; then
     log "  Updating existing clone: ${repo_dir}"
-    git -C "${repo_dir}" fetch --all --prune -q 2>/dev/null || true
+    git -C "${repo_dir}" -c "credential.helper=${cred_helper}" fetch --all --prune -q 2>/dev/null || true
     git -C "${repo_dir}" pull -q --ff-only 2>/dev/null || \
       git -C "${repo_dir}" pull -q --rebase 2>/dev/null || true
   else
     log "  Cloning: ${clone_url}"
-    git clone -q "${authed_url}" "${repo_dir}" 2>/dev/null || {
+    git -c "credential.helper=${cred_helper}" clone -q "${clone_url}" "${repo_dir}" 2>/dev/null || {
       log_err "  Failed to clone ${full_name}; skipping."
       echo "| ${full_name} | ⚠️ SKIPPED | Clone failed |" >> "${HEALTH_REPORT}"
       (( SKIPPED++ )) || true

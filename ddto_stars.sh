@@ -169,7 +169,9 @@ step_link_corrections() {
   # Replace http:// → https:// in Markdown files where safe to do so
   while IFS= read -r md_file; do
     if grep -q 'http://' "${md_file}" 2>/dev/null; then
-      sed -i 's|http://github\.com|https://github.com|g' "${md_file}" || true
+      # Use portable sed syntax (BSD and GNU sed compatible)
+      sed -i.ddto_bak 's|http://github\.com|https://github.com|g' "${md_file}" || true
+      rm -f "${md_file}.ddto_bak"
       (( fixed++ )) || true
     fi
   done < <(git ls-files '*.md' || true)
