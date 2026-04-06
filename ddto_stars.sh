@@ -170,8 +170,8 @@ step_link_corrections() {
   while IFS= read -r md_file; do
     if grep -q 'http://' "${md_file}" 2>/dev/null; then
       # Use portable sed syntax (BSD and GNU sed compatible)
-      sed -i.ddto_bak 's|http://github\.com|https://github.com|g' "${md_file}" || true
-      rm -f "${md_file}.ddto_bak"
+      sed -i.bak 's|http://github\.com|https://github.com|g' "${md_file}" || true
+      rm -f "${md_file}.bak"
       (( fixed++ )) || true
     fi
   done < <(git ls-files '*.md' || true)

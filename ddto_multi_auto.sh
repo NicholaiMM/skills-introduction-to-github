@@ -95,6 +95,15 @@ if [[ "${#repos[@]}" -eq 0 ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Set up a temporary git credential store (avoids token in process list)
+# ---------------------------------------------------------------------------
+
+GIT_CRED_FILE="$(mktemp)"
+chmod 600 "${GIT_CRED_FILE}"
+echo "https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com" > "${GIT_CRED_FILE}"
+trap 'rm -f "${GIT_CRED_FILE}"' EXIT
+
+# ---------------------------------------------------------------------------
 # Clone or update each repository, then run the D.D.T.O. protocol
 # ---------------------------------------------------------------------------
 
@@ -121,18 +130,15 @@ for entry in "${repos[@]}"; do
 
   log "Processing: ${full_name}"
 
-  # Use a git credential helper to avoid embedding the token in the URL
-  cred_helper='!f() { echo "username='"${GITHUB_USER}"'"; echo "password='"${GITHUB_TOKEN}"'"; }; f'
-
-  # Clone or update
+  # Clone or update using the temporary credential store
   if [[ -d "${repo_dir}/.git" ]]; then
     log "  Updating existing clone: ${repo_dir}"
-    git -C "${repo_dir}" -c "credential.helper=${cred_helper}" fetch --all --prune -q 2>/dev/null || true
+    git -C "${repo_dir}" -c "credential.helper=store --file=${GIT_CRED_FILE}" fetch --all --prune -q 2>/dev/null || true
     git -C "${repo_dir}" pull -q --ff-only 2>/dev/null || \
       git -C "${repo_dir}" pull -q --rebase 2>/dev/null || true
   else
     log "  Cloning: ${clone_url}"
-    git -c "credential.helper=${cred_helper}" clone -q "${clone_url}" "${repo_dir}" 2>/dev/null || {
+    git -c "credential.helper=store --file=${GIT_CRED_FILE}" clone -q "${clone_url}" "${repo_dir}" 2>/dev/null || {
       log_err "  Failed to clone ${full_name}; skipping."
       echo "| ${full_name} | ⚠️ SKIPPED | Clone failed |" >> "${HEALTH_REPORT}"
       (( SKIPPED++ )) || true
